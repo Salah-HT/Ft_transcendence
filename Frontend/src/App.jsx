@@ -92,6 +92,7 @@ import { useUser } from './contexts/UserContext';
 import SignUp from './component/SignUp';
 import ResetPassword from './component/ResetPassword';
 import ErrorPage from './component/ErreurPage'; // Add this import
+import PlayWithFriend from './component/game/PlayWithFriend';
 
 // Protected Routes component remains the same
 const ProtectedRoutes = () => {
@@ -133,6 +134,7 @@ const App = () => {
             <Route element={<ProtectedRoutes />}>
               <Route path="/" element={<Home />} />
               <Route path="/game" element={<Game />} />
+              <Route path="/game/friend" element={<PlayWithFriend />} />
               <Route path="/chat" element={<Chat />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/profile" element={<Profile />} />

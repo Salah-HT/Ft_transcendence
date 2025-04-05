@@ -45,7 +45,7 @@ const PongDashboard = () => {
         <div className="space-y-4 md:space-y-6 lg:space-y-8">
           {/* Match Stats Card */}
           <div className="bg-gray rounded-xl p-3 md:p-4 lg:p-6 shadow-lg">
-            <h2 className="text-xl md:text-2xl font-bold text-white mb-4 md:mb-6">
+            <h2 className="text-xl md:text-2xl font-bold text-blue-900 mb-4 md:mb-6">
               Your Match
             </h2>              
             <div className="w-full max-w-md mx-auto">
@@ -64,7 +64,7 @@ const PongDashboard = () => {
           {/* Top Players Card */}
           <div className="bg-gray rounded-xl p-4 md:p-6 lg:p-10 shadow-lg">
             <div className="flex justify-between items-center mb-4 md:mb-8">
-              <h3 className="text-xl md:text-2xl font-bold text-white">
+              <h3 className="text-xl md:text-2xl font-bold text-blue-900">
                 TOP 3 PLAYERS
               </h3>
               <img 
@@ -82,14 +82,14 @@ const PongDashboard = () => {
           {/* Score Card */}
           <div className="bg-gray rounded-xl p-4 md:p-6 lg:p-8 shadow-lg">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 md:mb-4">
-              <h3 className="text-xl md:text-2xl font-bold text-white mb-2 sm:mb-0">
+              <h3 className="text-xl md:text-2xl font-bold text-blue-900 mb-2 sm:mb-0">
                 Score
-              </h3>900
+              </h3>
               <span className="text-red-500 text-xs md:text-sm">
                 ↓ 2.1% vs last week
               </span>
             </div>
-            <p className="text-xs md:text-sm text-gray-100 mb-4 md:mb-8">
+            <p className="text-xs md:text-sm text-gray-500 mb-4 md:mb-8">
               from 1-31 Dec, 2024
             </p>
             

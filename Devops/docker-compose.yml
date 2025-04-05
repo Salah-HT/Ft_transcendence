@@ -1,0 +1,189 @@
+# +-------+-----------------+ +-------+---------+
+# | 8000  | authen service  | | 1025  | SMTP    |
+# +-------+-----------------+ +-------+---------+
+# | 8001  | game service    | | 8025  | Web UI  |
+# +-------+-----------------+ +-------+---------+
+# | 8002  | chat service    |
+# +-------+-----------------+
+# | 5432  | database        |
+# +-------+-----------------+
+# | 5173  | frontend        |
+# +-------+-----------------+
+
+version: '3.8'
+services:
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  adminer:
+    image: adminer
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - app-network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  db:
+    image: postgres:latest
+    container_name: database
+    environment:
+      POSTGRES_USER: ft_transcendence
+      POSTGRES_PASSWORD: ft_transcendence@42
+      POSTGRES_DB: ft_transcendence_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ft_transcendence -d ft_transcendence_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    restart: always
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog
+    container_name: mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - app-network
+    restart: always
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  backend_authen_service:
+    build:
+      context: ../Backend/authen_service
+      dockerfile: Dockerfile
+    container_name: authen-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/ft_transcendence_db
+      REDIS_URL: redis://redis:6379/0
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: 1025
+    volumes:
+      - ../Backend/authen_service:/app/authen_service
+      - static_volume:/app/authen_service/static
+      - media_volume:/app/authen_service/media
+    command: >
+      sh -c "
+        python manage.py makemigrations &&
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
+        daphne -b 0.0.0.0 -p 8000 authen_service.asgi:application"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+      - mailhog
+    networks:
+      - app-network
+    restart: always
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  backend_game_service:
+    build:
+      context: ../Backend/game_service
+      dockerfile: Dockerfile
+    container_name: game-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/ft_transcendence_db
+    volumes:
+      - ../Backend/game_service:/app/game-service
+    command: >
+      sh -c "
+        python manage.py makemigrations &&
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
+        daphne -b 0.0.0.0 -p 8001 game_service.asgi:application"
+    ports:
+      - "8001:8001"
+    networks:
+      - app-network
+    depends_on:
+      - db
+      - redis
+    restart: always
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  backend_chat_service:
+    build:
+      context: ../Backend/chat_service
+      dockerfile: Dockerfile
+    container_name: chat-service
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/ft_transcendence_db
+    volumes:
+      - ../Backend/chat_service:/app/chat_service
+    command: >
+      sh -c "
+        python manage.py makemigrations &&
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
+        daphne -b 0.0.0.0 -p 8002 chat_service.asgi:application"
+    ports:
+      - "8002:8002"
+    networks:
+      - app-network
+    depends_on:
+      - db
+      - redis
+    restart: always
+  #-----------------------------------------------------------------------------------
+  #-----------------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ../Frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports: 
+      - "5173:5173"
+    networks:
+      - app-network
+    volumes: 
+      - ../Frontend:/app
+      - frontend_modules:/app/node_modules
+    restart: always
+    depends_on:
+      backend_authen_service:
+        condition: service_started
+      backend_game_service:
+        condition: service_started
+      backend_chat_service:
+        condition: service_started
+#---------------------------------------------------
+#---------------------------------------------------
+volumes:
+  frontend_modules:
+  static_volume:
+  media_volume:
+  postgres_data:
+  redis_data:
+#---------------------------------------------------
+#---------------------------------------------------
+networks:
+  app-network:
+    driver: bridge
+#---------------------------------------------------
+#---------------------------------------------------

@@ -102,7 +102,7 @@ const handleSubmit = async (e) => {
     return (
         <div className="page">
             <div className='login-wrapper'>
-                <h2>Ping Pong </h2>
+                <h2>WELCOME BACK</h2>
                 <h6>Welcome back! Please enter your details</h6>
                 <form onSubmit={handleSubmit} className="w-[30rem]">
                     <p>Login</p>

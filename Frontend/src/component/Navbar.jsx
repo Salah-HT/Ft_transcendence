@@ -12,7 +12,7 @@ const Navbar = ({ isOpen, setIsOpen }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
   return (
-    <nav className="h-[56px] bg-[#0d0d0d] p-4 flex items-center justify-between sticky top-0 z-40 shadow-2xl">
+    <nav className="h-[56px] bg-[#5376aa] p-4 flex items-center justify-between sticky top-0 z-40 shadow-2xl">
       <div className="flex items-center gap-4">
         <div className="md:hidden">
           <Hamburger toggled={isOpen} toggle={setIsOpen} color="#133E87" />

@@ -24,7 +24,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     ];
 
     const SidebarContent = () => (
-        <div className="w-[100px] bg-[#0d0d0d] flex flex-col h-full shadow-lg">
+        <div className="w-[100px] bg-[#5376aa] flex flex-col h-full shadow-lg">
             <div className="mb-4 flex justify-center p-4">
                 <img src={logoImage} alt="Pong Logo" className="w-10 h-10" />
             </div>
@@ -45,7 +45,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
                 ))}
             </nav>
 
-            <div className="mt-auto p-4 border-t border-[#608BC1]/50">
+            <div className="mt-auto p-2 border-t border-[#608BC1]/50">
                 <div className='flex items-center gap-2'>
                 </div>
                 <button
