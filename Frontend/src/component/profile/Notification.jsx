@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 
+
 const NotificationComponent = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -18,12 +19,11 @@ const NotificationComponent = () => {
 
   useEffect(() => {
     fetchNotifications();
-    
-    // Rafraîchir les notifications toutes les 10 secondes
+
     const interval = setInterval(() => {
       fetchNotifications();
     }, 10000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -50,11 +50,10 @@ const NotificationComponent = () => {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      // Mettre à jour la liste des notifications localement
+
       setNotifications(
-        notifications.map(n => 
-          n.id === notificationId ? {...n, is_read: true} : n
+        notifications.map(n =>
+          n.id === notificationId ? { ...n, is_read: true } : n
         )
       );
     } catch (error) {
@@ -62,7 +61,6 @@ const NotificationComponent = () => {
     }
   };
 
-  // Fonction pour marquer toutes les notifications comme lues
   const markAllAsRead = async () => {
     try {
       await axios.post(
@@ -70,10 +68,9 @@ const NotificationComponent = () => {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      // Mettre à jour toutes les notifications localement
+
       setNotifications(
-        notifications.map(n => ({...n, is_read: true}))
+        notifications.map(n => ({ ...n, is_read: true }))
       );
     } catch (error) {
       console.error("Erreur lors du marquage de toutes les notifications comme lues:", error);
@@ -81,25 +78,66 @@ const NotificationComponent = () => {
   };
 
   const navigateToUserProfile = (notification) => {
-	console.log("Notification complète:", notification);
-	console.log("ID de l'expéditeur:", notification.sender_id);
-	console.log("Intra ID de l'expéditeur:", notification.sender_intra_id);
-	
-	// Essayez d'abord de vérifier si l'utilisateur existe
-	axios.get(`http://localhost:8000/api/users/${notification.sender_intra_id}/`, {
-	  headers: { Authorization: `Bearer ${token}` }
-	})
-	.then(response => {
-	  console.log("Utilisateur trouvé:", response.data);
-	  setIsOpen(false);
-	  markAsRead(notification.id);
-	  navigate(`/profile/${notification.sender_intra_id}`);
-	})
-	.catch(error => {
-	  console.error("Erreur lors de la récupération du profil:", error);
-	  alert("Impossible de trouver le profil de cet utilisateur");
-	});
-  }
+    console.log("Notification complète:", notification);
+    console.log("ID de l'expéditeur:", notification.sender_id);
+    console.log("Intra ID de l'expéditeur:", notification.sender_intra_id);
+
+    axios.get(`http://localhost:8000/api/users/${notification.sender_intra_id}/`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(response => {
+        console.log("Utilisateur trouvé:", response.data);
+        setIsOpen(false);
+        markAsRead(notification.id);
+        navigate(`/profile/${notification.sender_intra_id}`);
+      })
+      .catch(error => {
+        console.error("Erreur lors de la récupération du profil:", error);
+        alert("Impossible de trouver le profil de cet utilisateur");
+      });
+  };
+  const handleGameInviteAction = async (notificationId, action) => {
+    try {
+      console.log(`Handling game invite: ${notificationId} with action: ${action}`);
+      
+      const res = await fetch(`http://localhost:8000/api/notifications/game-invite/${notificationId}/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action }),
+      });
+  
+      console.log("Response status:", res.status);
+      
+      if (res.ok) {
+        const data = await res.json();
+        console.log("Game invite response:", data);
+  
+        if (action === "accept" && data.status === "accepted") {
+          // Redirect to game room
+          console.log("Invitation accepted, redirecting to game...");
+          // You might want to navigate to a game room here
+          // navigate(`/game/room/${data.id}`);
+        }
+  
+        // Update the notification as read
+        markAsRead(notificationId);
+        
+        // Refresh notifications to update the UI
+        fetchNotifications();
+      } else {
+        const errorData = await res.json();
+        console.error("Error response from backend:", errorData);
+        alert(`Error: ${errorData.error || "Failed to process game invite"}`);
+      }
+    } catch (error) {
+      console.error("Error handling game invite:", error);
+      alert("An error occurred while processing the game invitation");
+    }
+  };
+  
 
   const getNotificationContent = (notification) => {
     switch (notification.notification_type) {
@@ -110,15 +148,29 @@ const NotificationComponent = () => {
             <p className="text-sm">vous a envoyé une demande d'ami</p>
           </div>
         );
-      
+
       case 'game_invite':
         return (
-          <div className="cursor-pointer hover:bg-gray-50">
+          <div>
             <p className="font-semibold">{notification.sender_name}</p>
             <p className="text-sm">vous invite à jouer une partie</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => handleGameInviteAction(notification.id, "accept")}
+                className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+              >
+                Accepter
+              </button>
+              <button
+                onClick={() => handleGameInviteAction(notification.id, "reject")}
+                className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+              >
+                Refuser
+              </button>
+            </div>
           </div>
         );
-      
+
       case 'message':
         return (
           <div className="cursor-pointer hover:bg-gray-50">
@@ -126,7 +178,7 @@ const NotificationComponent = () => {
             <p className="text-sm">Nouveau message: {notification.content}</p>
           </div>
         );
-        
+
       default:
         return (
           <div className="cursor-pointer hover:bg-gray-50">
@@ -141,7 +193,7 @@ const NotificationComponent = () => {
 
   return (
     <div className="relative">
-      <button 
+      <button
         onClick={() => setIsOpen(true)}
         className="relative p-2 rounded-full bg-[#5376aa] hover:bg-gray-400"
       >
@@ -159,7 +211,7 @@ const NotificationComponent = () => {
             <div className="flex justify-between items-center">
               <DialogTitle>Notifications</DialogTitle>
               {unreadCount > 0 && (
-                <button 
+                <button
                   onClick={markAllAsRead}
                   className="flex items-center text-sm text-blue-600 hover:text-blue-800"
                 >
@@ -169,7 +221,7 @@ const NotificationComponent = () => {
               )}
             </div>
           </DialogHeader>
-          
+
           <div className="space-y-4 max-h-96 overflow-y-auto">
             {loading ? (
               <div className="text-center py-4">
@@ -180,7 +232,7 @@ const NotificationComponent = () => {
               <p className="text-center text-gray-500">Aucune notification</p>
             ) : (
               notifications.map((notification) => (
-                <div 
+                <div
                   key={notification.id}
                   className={`p-4 rounded-lg border transition-all hover:bg-gray-100 ${!notification.is_read ? 'bg-blue-50' : ''}`}
                 >
@@ -192,7 +244,7 @@ const NotificationComponent = () => {
                       </span>
                     </div>
                     {!notification.is_read && (
-                      <button 
+                      <button
                         onClick={() => markAsRead(notification.id)}
                         className="ml-2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full"
                         title="Marquer comme lu"

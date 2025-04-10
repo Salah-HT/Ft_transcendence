@@ -12,7 +12,7 @@ const Game = () => {
           <line x1="12" y1="17" x2="12" y2="21" />
         </svg>
       ),
-      title: "Play vs Bot",
+      title: "Play vs IA",
       path: "/game/bot"
     },
     {

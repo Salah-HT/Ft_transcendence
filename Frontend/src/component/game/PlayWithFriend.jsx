@@ -7,13 +7,24 @@ const PlayWithFriend = () => {
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [isFriendOnline, setIsFriendOnline] = useState(false);
   const [inviteEnabled, setInviteEnabled] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState('');
+
+  // Helper to convert avatar path to full URL
+  const getFullAvatarUrl = (avatar) => {
+    if (!avatar) return '';
+    if (avatar.startsWith('http')) return avatar;
+
+    // Clean up path like ./media/avatars/user_2.jpg => media/avatars/user_2.jpg
+    const cleanPath = avatar.replace(/^\.?\//, '');
+    return `http://localhost:8000/${cleanPath}`;
+  };
 
   // Fetch player info and friends list
   useEffect(() => {
     const fetchPlayerInfo = async () => {
       try {
-        const token = localStorage.getItem('token'); // assuming token is stored in localStorage
-        const response = await axios.get('http://localhost:8001/api/game/matchmaking/', {
+        const token = localStorage.getItem('token');
+        const response = await axios.get('http://localhost:8000/api/game/matchmaking/', {
           headers: { Authorization: `Bearer ${token}` },
         });
         setPlayerInfo(response.data.player);
@@ -34,7 +45,6 @@ const PlayWithFriend = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // If the friend is found and is online, enable the invite button
       if (response.data[0].status === 'online') {
         setIsFriendOnline(true);
         setInviteEnabled(true);
@@ -50,31 +60,48 @@ const PlayWithFriend = () => {
   // Send game invite to selected friend
   const sendGameInvite = async () => {
     if (!selectedFriend) return;
-
+  
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
-        'http://localhost:8000/api/notifications/game-invite/',
+        'http://localhost:8000/api/game/invite/',
         { receiver_id: selectedFriend.id },
         {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         }
       );
-      console.log(response.data.message); // should be "Game invite sent successfully"
+  
+      if (response.status === 201) {
+        setInviteStatus('sent');
+        console.log("Game invitation sent successfully");
+      }
     } catch (error) {
       console.error('Error sending game invite:', error);
+      
+      // Check for specific error messages
+      if (error.response && error.response.data && error.response.data.error) {
+        alert(`Error: ${error.response.data.error}`);
+      } else {
+        setInviteStatus('failed');
+      }
     }
   };
 
   return (
-    <div className="play-with-friend-container flex justify-center items-center p-10 bg-gray-100 min-h-screen">
+    <div className="play-with-friend-container flex justify-center items-center p-10  ">
       <div className="w-full max-w-3xl bg-white rounded-lg shadow-lg p-8">
         {/* Player Info */}
         <div className="player-info flex items-center justify-between mb-8">
           {playerInfo ? (
             <div className="flex items-center">
-              <img src={playerInfo.avatar} alt="Player Avatar" className="w-16 h-16 rounded-full mr-6" />
-              <span className="text-3xl font-semibold text-black">{playerInfo.display_name}</span>
+              <img
+                src={getFullAvatarUrl(playerInfo.avatar)}
+                alt="Player Avatar"
+                className="w-16 h-16 rounded-full mr-6"
+              />
+              <span className="text-3xl font-semibold text-black">
+                {playerInfo.display_name}
+              </span>
             </div>
           ) : (
             <p className="text-lg text-black">Loading player info...</p>
@@ -88,8 +115,9 @@ const PlayWithFriend = () => {
             onChange={(e) => {
               const friend = friends.find((f) => f.name === e.target.value);
               setSelectedFriend(friend);
-              setIsFriendOnline(false); // Reset online status each time a new friend is selected
-              setInviteEnabled(false);  // Reset invite button state
+              setIsFriendOnline(false);
+              setInviteEnabled(false);
+              setInviteStatus('');
             }}
             className="w-full p-4 border border-gray-300 rounded-md mb-6 text-lg"
           >
@@ -110,11 +138,15 @@ const PlayWithFriend = () => {
           </button>
         </div>
 
-        {/* Display Selected Friend Info */}
+        {/* Selected Friend Info */}
         {selectedFriend && (
           <div className="selected-friend-info flex justify-between items-center mb-8">
             <div className="flex items-center">
-              <img src={selectedFriend.avatar} alt="Selected Friend Avatar" className="w-16 h-16 rounded-full mr-6" />
+              <img
+                src={getFullAvatarUrl(selectedFriend.avatar)}
+                alt="Selected Friend Avatar"
+                className="w-16 h-16 rounded-full mr-6"
+              />
               <span className="text-xl text-black">{selectedFriend.name}</span>
             </div>
             <div>
@@ -136,7 +168,13 @@ const PlayWithFriend = () => {
               inviteEnabled ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400'
             }`}
           >
-            {inviteEnabled ? 'Send Game Invite' : 'Friend is Offline'}
+            {inviteStatus === 'sent'
+              ? 'Invitation Sent'
+              : inviteStatus === 'failed'
+              ? 'Failed to Send Invite'
+              : inviteEnabled
+              ? 'Send Game Invite'
+              : 'Friend is Offline'}
           </button>
         </div>
       </div>
