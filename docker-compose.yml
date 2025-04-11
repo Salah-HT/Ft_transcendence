@@ -1,8 +1,13 @@
+version: '3.8'
 
 services:
   db:
     image: postgres:13
     container_name: database
+    environment:
+      POSTGRES_USER: ft_transcendence
+      POSTGRES_PASSWORD: ft_transcendence
+      POSTGRES_DB: backend_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -15,6 +20,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 30s
+
   redis:
     image: redis:latest
     ports:
@@ -36,6 +43,8 @@ services:
       db:
         condition: service_healthy
     restart: always
+    environment:
+      ADMINER_DEFAULT_SERVER: db
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -46,6 +55,7 @@ services:
     networks:
       - app-network
     restart: always
+
   swagger:
     image: swaggerapi/swagger-ui:latest
     container_name: swagger
@@ -64,6 +74,9 @@ services:
       context: ./Backend
       dockerfile: Dockerfile
     container_name: backend
+    environment:
+      - DATABASE_URL=postgres://ft_transcendence:yourpassword@db:5432/backend_db
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./Backend/backend:/app/backend
       - static_volume:/app/backend/static
@@ -75,13 +88,14 @@ services:
         python manage.py makemigrations &&
         python manage.py migrate &&
         python manage.py collectstatic --noinput &&
-        python manage.py runserver 0.0.0.0:8000
-        daphne -p 0.0.0.0 -p 8000 backend.asgi:application"
+        daphne -b 0.0.0.0 -p 8000 backend.asgi:application"
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
       mailhog:
         condition: service_started
     networks:
