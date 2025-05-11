@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const SearchNavbar = () => {
-  const { user } = useUser();
+  const { user, normalizeAvatarUrl } = useUser();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
@@ -18,7 +18,7 @@ const SearchNavbar = () => {
       }
 
       try {
-        const response = await fetch(`http://localhost:8000/api/users/search/?q=${encodeURIComponent(searchQuery)}`, {
+        const response = await fetch(`https://${window.location.host}/api/users/search/?q=${encodeURIComponent(searchQuery)}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
@@ -36,6 +36,18 @@ const SearchNavbar = () => {
     const debounceTimer = setTimeout(searchUsers, 300);
     return () => clearTimeout(debounceTimer);
   }, [searchQuery]);
+
+  // Fonction pour normaliser les URL d'avatar
+  const normalizeAvatar = (avatar) => {
+    // Utiliser la fonction du contexte si disponible
+    if (normalizeAvatarUrl) return normalizeAvatarUrl(avatar);
+    
+    if (!avatar) return `https://${window.location.host}/media/avatars/defaultavatar.png`;
+    if (avatar.startsWith('http')) return avatar;
+    if (avatar.startsWith('./media')) return `https://${window.location.host}${avatar.substring(1)}`;
+    if (avatar.startsWith('/media')) return `https://${window.location.host}${avatar}`;
+    return `https://${window.location.host}/media/${avatar}`;
+  };
 
   const handleUserClick = (result) => {
     navigate(`/profile/${result.intra_id}`);
@@ -69,16 +81,12 @@ const SearchNavbar = () => {
               onClick={() => handleUserClick(result)}
             >
               <img
-                src={result.avatar ? 
-                  (result.avatar.startsWith('./media') ? `http://localhost:8000${result.avatar.substring(1)}` :
-                   result.avatar.startsWith('/media') ? `http://localhost:8000${result.avatar}` : 
-                   result.avatar) :
-                  'http://localhost:8000/media/avatars/defaultavatar.png'}
+                src={normalizeAvatar(result.avatar)}
                 alt={result.display_name}
                 className="w-8 h-8 rounded-full mr-3 bg-gray-200"
                 onError={(e) => {
                   e.target.onerror = null;
-                  e.target.src = 'http://localhost:8000/media/avatars/defaultavatar.png';
+                  e.target.src = `https://${window.location.host}/media/avatars/defaultavatar.png`;
                 }}
               />
               <div>

@@ -29,11 +29,28 @@ class UserProfileSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source='user.first_name', required=False)
     last_name = serializers.CharField(source='user.last_name', required=False)
     email = serializers.EmailField(source='user.email', read_only=True)
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
-        fields = ('id', 'first_name', 'last_name', 'email', 'intra_id', 'avatar', 
-                 'display_name', 'status', 'two_factor_enabled', 'wins', 'losses')
+        fields = ('id', 'first_name', 'last_name', 'email', 'intra_id', 'avatar',
+                 'avatar_url', 'display_name', 'status', 'two_factor_enabled', 'wins', 'losses')
+
+    def get_avatar_url(self, obj):
+        """
+        Return the complete avatar URL. This is useful for clients that need
+        the full URL instead of the relative path.
+        """
+        request = self.context.get('request')
+        if not request:
+            return obj.avatar
+
+        # If avatar is already an absolute URL, return as is
+        if obj.avatar.startswith('http'):
+            return obj.avatar
+
+        # Otherwise, build a full URL
+        return request.build_absolute_uri(obj.avatar)
 
     def update(self, instance, validated_data):
         user = instance.user
@@ -124,7 +141,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'notification_type', 'content', 'is_read', 'created_at', 
-                 'sender_name', 'sender_avatar', 'sender_id', 'sender_intra_id']
+                 'sender_name', 'sender_avatar', 'sender_id', 'sender_intra_id',  'redirect_url']
         
 # Ajoutez ceci à votre serializers.py
 
@@ -157,3 +174,5 @@ class GameInviteSerializer(serializers.ModelSerializer):
         model = GameInvite
         fields = ['id', 'sender', 'receiver', 'sender_username', 'receiver_username', 'status', 'created_at', 'updated_at']
         read_only_fields = ['sender', 'receiver', 'created_at', 'updated_at']
+
+

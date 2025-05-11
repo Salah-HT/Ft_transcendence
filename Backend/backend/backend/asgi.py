@@ -8,22 +8,23 @@ https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/
 """
 
 import os
-
+import django
 from django.core.asgi import get_asgi_application
+from channels.routing import ProtocolTypeRouter, URLRouter
 
+# Set Django settings module first
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 
-application = get_asgi_application()
+# Initialize Django before importing models
+django.setup()
 
-# backend/asgi.py
-import os
-from django.core.asgi import get_asgi_application
-from channels.routing import ProtocolTypeRouter
-from .routing import application
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+# Now import your WebSocket routes
+from chat.routing import websocket_urlpatterns as chat_websocket_urlpatterns
+from authen.routing import websocket_urlpatterns as authen_websocket_urlpatterns
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
-    "websocket": application.application_mapping['websocket'],
+    "websocket": URLRouter(
+        chat_websocket_urlpatterns + authen_websocket_urlpatterns
+    ),
 })

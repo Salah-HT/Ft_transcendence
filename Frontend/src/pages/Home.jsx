@@ -86,11 +86,11 @@ const PongDashboard = () => {
                 Score
               </h3>
               <span className="text-red-500 text-xs md:text-sm">
-                ↓ 2.1% vs last week
+                ↓ 2.2% vs last week
               </span>
             </div>
             <p className="text-xs md:text-sm text-gray-500 mb-4 md:mb-8">
-              from 1-31 Dec, 2024
+              from 1-31 Dec, 2025
             </p>
             
             <div className="h-48 md:h-56 lg:h-64">

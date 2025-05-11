@@ -46,6 +46,13 @@ from django.db import transaction
 from rest_framework import status
 from .serializers import GameInviteSerializer
 from django.shortcuts import get_object_or_404
+from game.models import GameRoom  
+from .models import ActiveSession
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .models import UserProfile
+from .serializers import UserProfileSerializer
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
@@ -84,14 +91,14 @@ class LoginView(APIView):
                         TwoFactorCode.objects.create(
                             user=user,
                             code=code,
-                            expires_at=timezone.now() + timedelta(minutes=10)
+                            expires_at=timezone.now() + timedelta(minutes=2)
                         )
                         
                         # Envoyer le code par email
                         html_content = render_to_string('two_factor_email.html', {
                             'user': user,
                             'code': code,
-                            'expires_in': '10 minutes'
+                            'expires_in': '2 minutes'
                         })
                         
                         send_mail(
@@ -121,6 +128,20 @@ class LoginView(APIView):
                         # Connexion sans 2FA
                         user_profile.status = 'online'
                         user_profile.save()
+                        
+                        session_key = request.session.session_key
+                        if not session_key:
+                            request.session.create()
+                            session_key = request.session.session_key
+                            
+                        from .models import ActiveSession  # Importez le modèle ici si besoin
+                        ActiveSession.objects.update_or_create(
+                            user=user,
+                            defaults={
+                                'session_key': session_key,
+                                'last_activity': timezone.now()
+                            }
+                        )
                         
                         refresh = RefreshToken.for_user(user)
                         return Response({
@@ -236,7 +257,7 @@ class FortyTwoCallbackView(APIView):
                 TwoFactorCode.objects.create(
                     user=user,
                     code=code,
-                    expires_at=timezone.now() + timedelta(minutes=10)
+                    expires_at=timezone.now() + timedelta(minutes=2)
                 )
                 
                 html_content = render_to_string('two_factor_email.html', {
@@ -264,6 +285,7 @@ class FortyTwoCallbackView(APIView):
                 )
                 
                 redirect_url = (
+                    # f"{settings.FRONTEND_URL}/auth/callback"
                     f"{settings.FRONTEND_URL}/auth/callback"
                     f"?requires_2fa=true"
                     f"&temp_token={temp_token}"
@@ -329,12 +351,21 @@ class LogoutView(APIView):
     def post(self, request):
         try:
             with transaction.atomic():
-                # Mettre le statut à offline avant de blacklister le token
+                # Supprimer la session active
+                session_key = request.session.session_key
+                if session_key:
+                    ActiveSession.objects.filter(
+                        user=request.user,
+                        session_key=session_key
+                    ).delete()
+                
+                # Forcer le statut offline
                 UserProfile.objects.filter(user=request.user).update(
                     status='offline',
                     updated_at=timezone.now()
                 )
                 
+                # Blacklister le token
                 refresh_token = request.data.get('refresh_token')
                 if refresh_token:
                     try:
@@ -352,6 +383,7 @@ class LogoutView(APIView):
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
 class UpdateAvatarView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -391,16 +423,21 @@ class UpdateAvatarView(APIView):
                 path = default_storage.save(file_path, ContentFile(image_file.read()))
                 print(f"File saved successfully at: {path}")
                 
+                # Generate a consistent URL path that will work with Nginx config
                 file_url = f"/media/{path}"
                 print(f"File URL: {file_url}")
 
                 profile = request.user.userprofile
                 
-                # Supprimer l'ancienne image si elle existe
+                # Delete old image if it exists and is not the default avatar
                 if profile.avatar and profile.avatar != profile.DEFAULT_AVATAR:
-                    old_path = profile.avatar.replace('/media/', '', 1)
-                    if default_storage.exists(old_path):
-                        default_storage.delete(old_path)
+                    try:
+                        # Remove /media/ prefix for storage operations
+                        old_path = profile.avatar.replace('/media/', '', 1)
+                        if default_storage.exists(old_path):
+                            default_storage.delete(old_path)
+                    except Exception as delete_error:
+                        print(f"Warning: Failed to delete old avatar: {delete_error}")
                 
                 profile.avatar = file_url
                 profile.save()
@@ -428,13 +465,13 @@ class UpdateAvatarView(APIView):
             profile = request.user.userprofile
             
             if profile.avatar and profile.avatar != profile.DEFAULT_AVATAR:
-                # Supprimer le fichier physique
+                # Remove /media/ prefix for storage operations
                 file_path = profile.avatar.replace('/media/', '', 1)
                 if default_storage.exists(file_path):
                     default_storage.delete(file_path)
                     print(f"Deleted file: {file_path}")
                 
-                # Réinitialiser l'avatar
+                # Reset avatar to default
                 profile.avatar = profile.DEFAULT_AVATAR
                 profile.save()
                 print("Reset avatar to default")
@@ -539,7 +576,7 @@ class PasswordResetRequestView(APIView):
                     context = {
                         'user': user,
                         'reset_url': reset_url,
-                        'expires_in': '24 heures'
+                        'expires_in': '15 minutes'
                     }
                     
                     print("Tentative de rendu du template...")
@@ -587,7 +624,7 @@ class PasswordResetConfirmView(APIView):
     permission_classes = []
 
     def post(self, request):
-        serializer = PasswordResetConfirmSerializer(data=request.data)  # Modifié ici
+        serializer = PasswordResetConfirmSerializer(data=request.data) 
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -604,7 +641,6 @@ class PasswordResetConfirmView(APIView):
                     'message': 'Ce lien de réinitialisation a expiré.'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Mettre à jour le mot de passe
             user = reset_token.user
             user.set_password(new_password)
             user.save()
@@ -628,10 +664,8 @@ class RequestProfileChangeView(APIView):
 
     def post(self, request):
         try:
-            # Générer le code de confirmation
             confirmation_code = ''.join(random.choices(string.digits, k=6))
             
-            # Stocker les changements en attente dans la session
             request.session['pending_changes'] = {
                 'changes': request.data,
                 'code': confirmation_code,
@@ -646,7 +680,6 @@ class RequestProfileChangeView(APIView):
             # Préparer le contenu HTML de l'email
             html_content = render_to_string('profile_change_email.html', context)
             
-            # Envoyer l'email
             try:
                 send_mail(
                     subject='Confirmez vos changements de profil',
@@ -992,10 +1025,20 @@ class UserStatusView(APIView):
         try:
             profile = request.user.userprofile
             new_status = request.data.get('status')
+            
             if new_status in ['online', 'offline', 'in_game']:
                 profile.status = new_status
-                profile.save()
+                
+                # Si le statut est passé à offline, on s'assure qu'il est traité immédiatement
+                # en reculant la date de mise à jour
+                if new_status == 'offline':
+                    profile.updated_at = timezone.now() - timedelta(minutes=5)
+                else:
+                    profile.updated_at = timezone.now()
+                    
+                profile.save(update_fields=['status', 'updated_at'])
                 return Response({'status': 'success'})
+            
             return Response(
                 {'error': 'Invalid status'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -1028,7 +1071,38 @@ class NotificationViewSet(viewsets.ModelViewSet):
             }
         )
 
-# Ajoutez ces vues à votre views.py
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            serializer = UserProfileSerializer(profile, context={'request': request})
+            return Response(serializer.data)
+        except UserProfile.DoesNotExist:
+            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request):
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            
+            # Update user fields directly
+            user = profile.user
+            user.first_name = request.data.get('first_name', user.first_name)
+            user.last_name = request.data.get('last_name', user.last_name)
+            user.save()
+            
+            # Update profile fields
+            if 'two_factor_enabled' in request.data:
+                profile.two_factor_enabled = request.data['two_factor_enabled']
+                profile.save()
+            
+            serializer = UserProfileSerializer(profile, context={'request': request})
+            return Response(serializer.data)
+        except Exception as e:
+            print("Update error:", str(e))
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class FriendRequestView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1386,6 +1460,56 @@ class RemoveFriendView(APIView):
             import traceback
             traceback.print_exc()
             return Response({'error': str(e)}, status=500)
+
+# Dans views.py
+# class UserHeartbeatView(APIView):
+#     permission_classes = [IsAuthenticated]
+    
+#     def post(self, request):
+#         try:
+#             # Mettre à jour la session active
+#             session_key = request.session.session_key or request.session.create()
+            
+#             # Assurez-vous que le modèle ActiveSession est bien importé
+#             # et créé dans votre base de données
+#             ActiveSession.objects.update_or_create(
+#                 user=request.user,
+#                 defaults={'session_key': session_key, 'last_activity': timezone.now()}
+#             )
+            
+#             # Mettre à jour le statut
+#             UserProfile.objects.filter(user=request.user).update(
+#                 status='online',
+#                 updated_at=timezone.now()
+#             )
+            
+#             return Response({'status': 'success'})
+#         except Exception as e:
+#             print(f"Heartbeat error: {str(e)}")
+#             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class UserIPView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            # Récupérer l'adresse IP
+            x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                ip = x_forwarded_for.split(',')[0]
+            else:
+                ip = request.META.get('REMOTE_ADDR')
+            
+            return Response({
+                'status': 'success',
+                'ip_address': ip
+            })
+        except Exception as e:
+            print(f"Error retrieving user IP: {str(e)}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         
 class GameInviteView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1421,100 +1545,100 @@ class GameInviteView(APIView):
             print(f"WebSocket error: {e}")
 
         return Response({'message': 'Game invite sent successfully'}, status=200)
-    
 class GameInviteResponseView(APIView):
     permission_classes = [IsAuthenticated]
     
+    @transaction.atomic
     def post(self, request, invite_id):
         try:
-            # First find the notification
-            try:
-                notification = Notification.objects.get(
-                    id=invite_id,
-                    recipient=request.user,
-                    notification_type='game_invite'
-                )
-            except Notification.DoesNotExist:
-                return Response(
-                    {'error': 'Notification not found or not authorized'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+            # Get notification and game invite
+            notification = Notification.objects.select_for_update().get(
+                id=invite_id,
+                recipient=request.user,
+                notification_type='game_invite'
+            )
+            invite = GameInvite.objects.select_for_update().get(
+                sender=notification.sender,
+                receiver=request.user,
+                status='pending'
+            )
 
             action = request.data.get('action')
             if action not in ['accept', 'reject']:
-                return Response(
-                    {'error': 'Invalid action. Possible actions: accept, reject'},
-                    status=status.HTTP_400_BAD_REQUEST
+                return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
+
+            response_data = {'status': action}
+            channel_layer = get_channel_layer()
+
+            if action == 'accept':
+                # Create game room with atomic transaction
+                game_room = GameRoom.objects.create(
+                    player1=invite.sender,
+                    player2=request.user,
+                    status='active'
+                )
+                
+                # Update invite and link to game room
+                invite.status = 'accepted'
+                invite.game_room = game_room
+                invite.save()
+                
+                # Create sender notification with game room ID
+                Notification.objects.create(
+                    recipient=invite.sender,
+                    sender=request.user,
+                    notification_type='game_ready',
+                    content=f"Game with {request.user.username} is ready!",
+                    redirect_url=f"/game/{game_room.id}/"
                 )
 
-            # Find the corresponding game invite
-            try:
-                game_invite = GameInvite.objects.get(
-                    sender=notification.sender,
-                    receiver=request.user,
-                    status='pending'
-                )
-            except GameInvite.DoesNotExist:
-                return Response(
-                    {'error': 'Game invite not found or already processed'},
-                    status=status.HTTP_404_NOT_FOUND
+                # WebSocket update for sender
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{invite.sender.id}",
+                    {
+                        "type": "notification.message",
+                        "message": {
+                            'type': 'game_ready',
+                            'room_id': str(game_room.id),
+                            'redirect_url': f"/game/{game_room.id}/"
+                        }
+                    }
                 )
 
-            # Update the game invite status
-            game_invite.status = 'accepted' if action == 'accept' else 'rejected'
-            game_invite.save()
+            else:
+                invite.status = 'rejected'
+                invite.save()
 
-            # Mark notification as read
+                # Create rejection notification for sender
+                Notification.objects.create(
+                    recipient=invite.sender,
+                    sender=request.user,
+                    notification_type='invite_rejected',
+                    content=f"{request.user.username} rejected your game invite",
+                    is_read=False
+                )
+
+                # WebSocket message
+                async_to_sync(channel_layer.group_send)(
+                    f"user_{invite.sender.id}",
+                    {
+                        "type": "notification.message",
+                        "message": {
+                            'type': 'game_notification',
+                            'action': 'invite_rejected',
+                            'message': f"{request.user.username} rejected your game invite"
+                        }
+                    }
+                )
+
+            # Mark original notification as read
             notification.is_read = True
             notification.save()
 
-            # Create a new notification for the sender
-            response_notification = Notification.objects.create(
-                recipient=game_invite.sender,
-                sender=request.user,
-                notification_type='game_invite_response',
-                content=f"{request.user.userprofile.display_name} has {action}ed your game invite",
-                is_read=False
-            )
-
-            # Send WebSocket notifications to both users
-            channel_layer = get_channel_layer()
-            
-            # Notify the receiver (current user) about their action
-            async_to_sync(channel_layer.group_send)(
-                f"user_{request.user.id}",
-                {
-                    "type": "notification_message",
-                    "message": {
-                        "type": "game_invite_response",
-                        "status": action,
-                        "message": f"You have {action}ed the game invite"
-                    }
-                }
-            )
-            
-            # Notify the sender about the response
-            async_to_sync(channel_layer.group_send)(
-                f"user_{game_invite.sender.id}",
-                {
-                    "type": "notification_message",
-                    "message": NotificationSerializer(response_notification).data
-                }
-            )
-
-            return Response({
-                'status': 'success',
-                'message': f'Game invite {action}ed',
-                'game_invite': GameInviteSerializer(game_invite).data
-            })
+            return Response(response_data)
 
         except Exception as e:
-            print(f"Error in game invite response: {str(e)}")
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 class CreateGameInviteView(APIView):
     permission_classes = [IsAuthenticated]
     

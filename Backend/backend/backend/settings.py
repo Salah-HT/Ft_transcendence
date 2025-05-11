@@ -10,9 +10,55 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
-from pathlib import Path
 import os
+import hvac
+from datetime import timedelta
+from pathlib import Path
 from dotenv import load_dotenv
+
+
+#----------------------------------------------------------------------------------
+load_dotenv()
+
+VAULT_ADDR = os.getenv('VAULT_ADDR')
+VAULT_TOKEN = os.getenv('VAULT_TOKEN')
+SERVER_IP = os.getenv('SERVER_IP')
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = os.getenv('DB_PORT')
+
+if not VAULT_ADDR or not VAULT_TOKEN:
+    raise RuntimeError("Vault environment variables are not set properly.")
+
+client = hvac.Client(url=VAULT_ADDR, token=VAULT_TOKEN)
+def fetch_secrets_or_fail(path):
+    try:
+        result = client.secrets.kv.v1.read_secret(path=path)
+        return result["data"]
+    except hvac.exceptions.InvalidRequest as e:
+        print(f"Invalid Request: {e}")
+    except hvac.exceptions.Forbidden as e:
+        print(f"Permission Denied: {e}")
+    except Exception as e:
+        print(f"An error occurred while fetching {path}: {e}")
+    return {}
+
+vault_database_secrets = fetch_secrets_or_fail("database")
+def require_secret(secrets, key):
+    value = secrets.get(key)
+    if value is None:
+        raise RuntimeError(f"Missing required secret '{key}' from Vault.")
+    return value
+
+POSTGRES_DB = require_secret(vault_database_secrets, "POSTGRES_DB")
+POSTGRES_USER = require_secret(vault_database_secrets, "POSTGRES_USER")
+POSTGRES_PASSWORD = require_secret(vault_database_secrets, "POSTGRES_PASSWORD")
+
+SECRET_KEY = require_secret(vault_database_secrets, "SECRET_KEY")
+FT_CLIENT_ID = require_secret(vault_database_secrets, "FT_CLIENT_ID")
+FT_CLIENT_SECRET = require_secret(vault_database_secrets, "FT_CLIENT_SECRET")
+
+VITE_42_CLIENT_ID = require_secret(vault_database_secrets, "VITE_42_CLIENT_ID")
+VITE_42_CLIENT_SECRET = require_secret(vault_database_secrets, "VITE_42_CLIENT_SECRET")
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,12 +68,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-inf^k^znhee!2o$98hiz@-#v$fo57$d$n$+f+pmzf1ov(1h_jz'
+# SECRET_KEY = 'django-insecure-inf^k^znhee!2o$98hiz@-#v$fo57$d$n$+f+pmzf1ov(1h_jz'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'backend', SERVER_IP]
 
 
 # Application definition
@@ -41,6 +88,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 	'authen',
 	'game',
+    'chat',
 	'rest_framework',
 	'drf_yasg',
 	'corsheaders',
@@ -73,7 +121,7 @@ SESSION_SAVE_EVERY_REQUEST = True
 
 ROOT_URLCONF = 'backend.urls'
 
-# Dans settings.py
+
 
 TEMPLATES = [
     {
@@ -100,11 +148,11 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
    'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'backend_db',
-        'USER': 'ft_transcendence',
-        'PASSWORD': 'ft_transcendence',
-        'HOST': 'db',
-        'PORT': '5432',
+        'NAME': POSTGRES_DB,
+        'USER': POSTGRES_USER,
+        'PASSWORD': POSTGRES_PASSWORD,
+        'HOST': DB_HOST,
+        'PORT': DB_PORT,
     }
 }
 
@@ -150,15 +198,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 STATIC_URL = 'static/'
 
-FRONTEND_URL = 'http://localhost:5173'  # URL de votre frontend Vite
+FRONTEND_URL = f'https://{SERVER_IP}'  # URL de votre frontend Vite
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-FT_CLIENT_ID = os.getenv('FT_CLIENT_ID')
-FT_CLIENT_SECRET = os.getenv('FT_CLIENT_SECRET')
+# FT_CLIENT_ID = os.getenv('FT_CLIENT_ID')
+# FT_CLIENT_SECRET = os.getenv('FT_CLIENT_SECRET')
 FT_REDIRECT_URI = os.getenv('FT_REDIRECT_URI')
 FT_API_URL = os.getenv('FT_API_URL')
 
@@ -170,13 +218,13 @@ FT_TOKEN_URL = f'{FT_API_URL}/oauth/token'
 
 # CORS Settings
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Votre frontend Vite
+    f"https://{SERVER_IP}",
+    "https://localhost",
 ]
 
-CORS_ALLOW_CREDENTIALS = True
-CORS_ORIGIN_ALLOW_ALL = False
 CORS_ORIGIN_WHITELIST = [
-    'http://localhost:5173',  # Votre frontend
+    f"https://{SERVER_IP}",
+    "https://localhost",
 ]
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -217,7 +265,6 @@ SIMPLE_JWT = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
@@ -235,6 +282,15 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = False  # Nginx s'occupe de la redirection
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_HSTS_SECONDS = 31536000  # 1 an
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
 
 # Configuration Email avec MailHog
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

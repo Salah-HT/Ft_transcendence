@@ -27,9 +27,11 @@ from .views import (
     FriendRequestActionView,
     MarkNotificationAsReadView,
     RemoveFriendView,
+    UserIPView,
     GameInviteView,
     GameInviteResponseView,
-    CreateGameInviteView
+    CreateGameInviteView,
+    
 )
 
 urlpatterns = [
@@ -61,6 +63,7 @@ urlpatterns = [
     path('notifications/<int:notification_id>/read/', MarkNotificationAsReadView.as_view(), name='mark-single-notification-read'),
 	path('users/friends/remove/<int:friendship_id>/', RemoveFriendView.as_view(), name='remove-friend-by-friendship'),
 	path('users/friends/remove/user/<int:user_id>/', RemoveFriendView.as_view(), name='remove-friend-by-user'),
+    path('users/ip/', UserIPView.as_view(), name='user-ip'),
     path('notifications/game-invite/', GameInviteView.as_view(), name='game-invite'),
     path('notifications/game-invite/<int:invite_id>/', GameInviteResponseView.as_view(), name='game_invite_response'),
     path('game/invite/', CreateGameInviteView.as_view(), name='create_game_invite'),

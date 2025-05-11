@@ -24,7 +24,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('authen.urls')),
     path('api/', include('game.urls')),
-    path('callback/', FortyTwoCallbackView.as_view(), name='ft_callback'),  # Ajoutez cette ligne
+    path('api/', include('chat.urls')),
+    path('api/callback/', FortyTwoCallbackView.as_view(), name='ft_callback'),  # Ajoutez cette ligne
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

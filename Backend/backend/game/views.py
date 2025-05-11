@@ -1,143 +1,291 @@
-import requests
+# import requests
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework.permissions import IsAuthenticated
+# from rest_framework import status
+
+# views.py
+from django.shortcuts import get_object_or_404
+from .models import GameRoom
+from .serializers import GameRoomSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from .models import GameRoom
+from .serializers import GameRoomSerializer
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.db.models import F
+from rest_framework.decorators import api_view
+from .models import PlayerStats
+from .serializers import UpdateStatsSerializer
+# views.py
+from rest_framework.decorators import api_view
+from .serializers import PlayerStatsSerializer, UpdateStatsSerializer, TopPlayerSerializer
 
-class StartGameView(APIView):
+User = get_user_model()
+
+class GameRoomDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        # Extract token from the Authorization header
-        token = request.headers.get('Authorization').split(" ")[1]
+    def get_object(self, game_id):
+        return get_object_or_404(GameRoom, id=game_id)
 
-        # Get player 1 data from authen_service (use authen-service container name)
-        authen_url = "http://localhost:8000/api/users/profile/"
-        headers = {'Authorization': f'Bearer {token}'}
+    def get(self, request, game_id):
+        """Get game details by ID"""
+        game = self.get_object(game_id)
         
-        try:
-            response = requests.get(authen_url, headers=headers)
-            response.raise_for_status()  # Will raise an exception for HTTP errors
+        if request.user not in [game.player1, game.player2]:
+            return Response(
+                {"error": "You are not a participant in this game"},
+                status=status.HTTP_403_FORBIDDEN
+            )
             
-            player_1_data = response.json()  # Player 1 data
-            
-            # Here you can get player 1's name, avatar, etc.
-            player1_username = player_1_data.get('display_name', '')  # Assuming `username` exists in profile
-            player_1_avatar = player_1_data.get('avatar', '')
+        serializer = GameRoomSerializer(game, context={'request': request})
+        return Response(serializer.data)
 
-            # At this point, you would normally search for player 2 (invite, matchmaking, etc.)
-            # For now, just returning player_1's data as an example
-            return Response({
-                "player_1": {
-                    "display_name": player1_username,
-                    "avatar": player_1_avatar
-                }
-            }, status=status.HTTP_200_OK)
-
-        except requests.exceptions.RequestException as e:
-            # Handle any errors when making the request to authen_service
-            return Response({"error": "Failed to fetch user data from authen-service"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    def post(self, request, game_id):
+        """Handle game updates and custom actions"""
+        action = request.data.get('action')
         
-class FriendsListView(APIView):
-    permission_classes = [IsAuthenticated]
+        if action == 'start':
+            return self.start_game(request, game_id)
+        elif action == 'end':
+            return self.end_game(request, game_id)
+        else:
+            # Handle regular POST updates
+            game = self.get_object(game_id)
+            serializer = GameRoomSerializer(game, data=request.data, partial=True)
+            
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def get(self, request):
-        # Retrieve token from the request
-        token = request.headers.get("Authorization")
-        if not token:
-            return Response({"error": "Authorization token required"}, status=401)
-
-        # Check the token format (debugging purposes)
-        if not token.startswith("Bearer "):
-            return Response({"error": "Invalid token format"}, status=400)
-
-        # Strip the 'Bearer ' prefix
-        token = token.split(" ")[1]
-
-        # Get current player's username using POST request to the game-service
-        try:
-            player_info = requests.post(
-                "http://localhost:8000/api/game/start/",  # Use POST instead of GET
-                headers={"Authorization": f"Bearer {token}"},
+    def start_game(self, request, game_id):
+        """Mark game as active"""
+        game = self.get_object(game_id)
+        
+        if game.status != GameRoom.GameStatus.WAITING:
+            return Response(
+                {"error": "Game can only be started from waiting state"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-            if player_info.status_code != 200:
-                return Response({"error": f"Failed to retrieve player info: {player_info.status_code}"}, status=400)
-
-            player_data = player_info.json()
-
-            # Extract player username
-            player_username = player_data.get("player_1", {}).get("display_name")
-
-            if not player_username:
-                return Response({"error": "Player username not found"}, status=400)
-
-        except Exception as e:
-            return Response({"error": f"Error retrieving player info: {str(e)}"}, status=400)
-
-        # Get friends list from authen_service
-        try:
-            response = requests.get(
-                "http://localhost:8000/api/users/friends/",
-                headers={"Authorization": f"Bearer {token}"},
+        if request.user not in [game.player1, game.player2]:
+            return Response(
+                {"error": "You are not a participant in this game"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-            if response.status_code != 200:
-                return Response({"error": f"Failed to retrieve friends list: {response.status_code}"}, status=400)
+        game.status = GameRoom.GameStatus.ACTIVE
+        game.started_at = timezone.now()
+        game.save()
+        return Response({"status": "Game started"}, status=status.HTTP_200_OK)
 
-            friends_data = response.json()
+    def end_game(self, request, game_id):
+        """Finalize game results"""
+        game = self.get_object(game_id)
+        winner_id = request.data.get('winner_id')
 
-        except Exception as e:
-            return Response({"error": f"Error retrieving friends list: {str(e)}"}, status=400)
+        if request.user not in [game.player1, game.player2]:
+            return Response(
+                {"error": "You are not a participant in this game"},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-        # Filter to get only friend info (not your own)
-        friends = []
-        for friend in friends_data:
-            # Check the friend's name with the player username
-            if friend.get("sender_name") != player_username:
-                friends.append({
-                    "id": friend.get("sender_id"),
-                    "name": friend.get("sender_name"),
-                    "avatar": friend.get("sender_avatar"),
-                })
-            elif friend.get("receiver_name") != player_username:
-                friends.append({
-                    "id": friend.get("receiver_id"),
-                    "name": friend.get("receiver_name"),
-                    "avatar": friend.get("receiver_avatar"),
-                })
+        try:
+            winner = User.objects.get(id=winner_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Invalid winner ID"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        return Response({"friends": friends})
+        if winner not in [game.player1, game.player2]:
+            return Response(
+                {"error": "Winner must be a game participant"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-class CombinedMatchmakingView(APIView):
-    permission_classes = [IsAuthenticated]
+        game.winner = winner
+        game.loser = game.player2 if winner == game.player1 else game.player1
+        game.status = GameRoom.GameStatus.COMPLETED
+        game.ended_at = timezone.now()
+        game.save()
 
-    def get(self, request):
-        token = request.headers.get("Authorization")
+        # Update user stats
+        winner_profile = winner.userprofile
+        winner_profile.wins += 1
+        winner_profile.save()
 
-        # Call /api/game/start/
-        start_response = requests.post(
-            "http://localhost:8000/api/game/start/",
-            headers={"Authorization": token}
+        loser_profile = game.loser.userprofile
+        loser_profile.losses += 1
+        loser_profile.save()
+
+        return Response(
+            GameRoomSerializer(game, context={'request': request}).data,
+            status=status.HTTP_200_OK
         )
+@api_view(['POST'])
+@transaction.atomic
+def UpdatePlayerStats(request):
+    serializer = UpdateStatsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+    
+    winner_name = serializer.validated_data['winner_name']
+    loser_name = serializer.validated_data['loser_name']
 
-        if start_response.status_code != 200:
-            return Response({"error": "Failed to get player info"}, status=400)
+    # Update winner stats
+    winner, created = PlayerStats.objects.get_or_create(name=winner_name)
+    if created:
+        winner.wins = 1
+        winner.save()
+    else:
+        PlayerStats.objects.filter(id=winner.id).update(wins=F('wins') + 1)
 
-        player_data = start_response.json().get("player_1", {})
+    # Update loser stats
+    loser, created = PlayerStats.objects.get_or_create(name=loser_name)
+    if created:
+        loser.losses = 1
+        loser.save()
+    else:
+        PlayerStats.objects.filter(id=loser.id).update(losses=F('losses') + 1)
 
-        # Call /api/game/friendslist/
-        friends_response = requests.get(
-            "http://localhost:8000/api/game/friendslist/",
-            headers={"Authorization": token}
-        )
+    return Response({'status': 'success'})
 
-        if friends_response.status_code != 200:
-            return Response({"error": "Failed to get friends list"}, status=400)
 
-        friends_data = friends_response.json().get("friends", [])
+@api_view(['GET'])
+def get_player_stats(request, username):
+    try:
+        stats = PlayerStats.objects.get(name=username)
+    except PlayerStats.DoesNotExist:
+        return Response({'wins': 0, 'losses': 0})
+    
+    serializer = PlayerStatsSerializer(stats)
+    return Response(serializer.data)
 
-        return Response({
-            "player": player_data,
-            "friends": friends_data
-        })
+@api_view(['POST'])
+@transaction.atomic
+def update_player_stats(request):
+    serializer = UpdateStatsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+    
+    winner_name = serializer.validated_data['winner_name']
+    loser_name = serializer.validated_data['loser_name']
+
+    # Update winner - using update() with F() for atomic operation
+    PlayerStats.objects.update_or_create(
+        name=winner_name,
+        defaults={'wins': F('wins') + 1}
+    )
+
+    # Update loser - using update() with F() for atomic operation
+    PlayerStats.objects.update_or_create(
+        name=loser_name,
+        defaults={'losses': F('losses') + 1}
+    )
+
+    return Response({'status': 'success'})
+
+@api_view(['GET'])
+def get_top_players(request):
+    top_players = PlayerStats.objects.order_by('-wins')[:3]  # Get top 3 by wins
+    serializer = TopPlayerSerializer(top_players, many=True)
+    return Response(serializer.data)
+
+# # Path to your SSL certificate (same as Nginx config)
+# SSL_CERT_PATH = "/etc/nginx/certs/cert.pem"
+
+# class StartGameView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         token = request.headers.get('Authorization').split(" ")[1]
+#         authen_url = "https://localhost/api/users/profile/"
+#         headers = {'Authorization': f'Bearer {token}'}
+        
+#         try:
+#             response = requests.get(
+#                 authen_url,
+#                 headers=headers,
+#                 verify=SSL_CERT_PATH  # Use your certificate
+#             )
+#             response.raise_for_status()
+            
+#             player_1_data = response.json()
+#             return Response({
+#                 "player_1": {
+#                     "display_name": player_1_data.get('display_name', ''),
+#                     "avatar": player_1_data.get('avatar', '')
+#                 }
+#             }, status=status.HTTP_200_OK)
+
+#         except requests.exceptions.RequestException as e:
+#             return Response({"error": f"Authentication service error: {str(e)}"},
+#                           status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# class FriendsListView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         token = request.headers.get("Authorization", "")
+#         if not token.startswith("Bearer "):
+#             return Response({"error": "Invalid token format"}, status=400)
+
+#         try:
+#             # Get player info with cert verification
+#             player_info = requests.post(
+#                 "https://localhost/api/game/start/",
+#                 headers={"Authorization": token},
+#                 verify=SSL_CERT_PATH
+#             )
+#             player_info.raise_for_status()
+#             player_username = player_info.json().get("player_1", {}).get("display_name")
+
+#             # Get friends list with cert verification
+#             friends_response = requests.get(
+#                 "https://localhost/api/users/friends/",
+#                 headers={"Authorization": token},
+#                 verify=SSL_CERT_PATH
+#             )
+#             friends_response.raise_for_status()
+#             friends_data = friends_response.json()
+
+#         except requests.exceptions.RequestException as e:
+#             return Response({"error": f"Service error: {str(e)}"}, status=400)
+
+#         # ... rest of FriendsListView remains the same ...
+
+# class CombinedMatchmakingView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         try:
+#             # Both requests with certificate verification
+#             start_response = requests.post(
+#                 "https://localhost/api/game/start/",
+#                 headers={"Authorization": request.headers.get("Authorization", "")},
+#                 verify=SSL_CERT_PATH
+#             )
+#             start_response.raise_for_status()
+
+#             friends_response = requests.get(
+#                 "https://localhost/api/game/friendslist/",
+#                 headers={"Authorization": request.headers.get("Authorization", "")},
+#                 verify=SSL_CERT_PATH
+#             )
+#             friends_response.raise_for_status()
+
+#         except requests.exceptions.RequestException as e:
+#             return Response({"error": f"Matchmaking error: {str(e)}"}, status=400)
+
+#         return Response({
+#             "player": start_response.json().get("player_1", {}),
+#             "friends": friends_response.json().get("friends", [])
+#         })

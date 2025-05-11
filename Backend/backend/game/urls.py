@@ -1,10 +1,13 @@
+from .views import GameRoomDetailView
+from . import views
 from django.urls import path
-from game.views import StartGameView, FriendsListView, CombinedMatchmakingView # Import views
 
 urlpatterns = [
-    # Other URL patterns here...
-    
-    path('game/start/', StartGameView.as_view(), name='start-game'),  # Add your start game API to get game id and user name
-    path('game/friendslist/', FriendsListView.as_view(), name='friends-list'), #list frinds
-    path('game/matchmaking/', CombinedMatchmakingView.as_view(), name="matchmaking"), #player 1 and his frind list in one
+    # Existing URLs...
+    path('game-rooms/<uuid:game_id>/', GameRoomDetailView.as_view(), name='game-room-detail'),
+    path('game-rooms/<uuid:game_id>/start/', GameRoomDetailView.as_view(), name='game-start'),
+    path('game-rooms/<uuid:game_id>/end/', GameRoomDetailView.as_view(), name='game-end'),
+    path('update-stats/', views.UpdatePlayerStats, name='update_stats'),
+    path('player-stats/<str:username>/', views.get_player_stats, name='get_player_stats'),
+    path('top-players/', views.get_top_players, name='top-players'),
 ]

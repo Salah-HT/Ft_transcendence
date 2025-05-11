@@ -1,4 +1,4 @@
-import axios from 'axios';  
+import api from '../api/axios'; 
 import logo42 from '../assets/src/42_.svg'; 
 import './login.css';
 import { useState } from 'react';
@@ -51,7 +51,7 @@ const handleSubmit = async (e) => {
     
     setIsLoading(true);
     try {
-        const response = await axios.post('http://localhost:8000/api/users/login/', {
+        const response = await api.post('/users/login/', {
             login_name: formData.loginName, 
             password: formData.password
         });
@@ -100,11 +100,14 @@ const handleSubmit = async (e) => {
 
     // Votre JSX reste exactement le même
     return (
+	<div className="page overflow-auto"> {/* Ajout de overflow-auto */}
         <div className="page">
             <div className='login-wrapper'>
-                <h2>WELCOME BACK</h2>
-                <h6>Welcome back! Please enter your details</h6>
-                <form onSubmit={handleSubmit} className="w-[30rem]">
+                <h2>- PingPong -</h2>
+                <br/><br/>
+                <h6>Welcome ! enter your details</h6>
+                <form onSubmit={handleSubmit} className="w-full max-w-[30rem]">
+                <br/>
                     <p>Login</p>
                     <input 
                         id='email'
@@ -179,5 +182,6 @@ const handleSubmit = async (e) => {
                 <img src={logoimage} alt="Decorative right side image" />
             </div>
         </div>
+	</div>
     );
 }

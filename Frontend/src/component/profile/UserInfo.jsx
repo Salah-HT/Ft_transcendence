@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../api/axios';
+// import { API_BASE_URL } from '../../config';
 import { useUser } from '../../contexts/UserContext';
+import { useState, useEffect, useCallback } from 'react';
 
 const UserInfo = ({ userData, isOwnProfile }) => {
   const { user } = useUser();
@@ -10,24 +11,53 @@ const UserInfo = ({ userData, isOwnProfile }) => {
   const [friendStatus, setFriendStatus] = useState('none'); // 'none', 'pending', 'friends', 'received'
   const [friendshipId, setFriendshipId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await api.get(`player-stats/${userData.intra_id}/`);
+      setDisplayData(prev => ({
+        ...prev,
+        wins: response.data.wins,
+        losses: response.data.losses
+      }));
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      setDisplayData(prev => ({
+        ...prev,
+        wins: 0,
+        losses: 0
+      }));
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [userData?.intra_id]);
 
   useEffect(() => {
-    if (userData) {
-      setDisplayData(userData);
-      
-      // Vérifier le statut d'amitié uniquement si ce n'est pas notre propre profil
-      if (!isOwnProfile && user) {
-        checkFriendshipStatus(userData.id);
-      }
-    }
-  }, [userData, user, isOwnProfile]);
+    if (!userData) return;
+
+    // Initial data setup
+    setDisplayData({
+      ...userData,
+      wins: 0,
+      losses: 0
+    });
+
+    // Immediate fetch
+    fetchStats();
+
+    // Set up interval for refreshes
+    const interval = setInterval(fetchStats, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [userData, fetchStats]);
 
   const checkFriendshipStatus = async (profileId) => {
     try {
-      setLoading(true); // Ajouter un état de chargement pendant la vérification
+      setLoading(true); 
       
       // Vérifier les demandes envoyées
-      const sentResponse = await axios.get('http://localhost:8000/api/users/friends/requests/sent/', {
+      const sentResponse = await api.get('/users/friends/requests/sent/', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -40,7 +70,7 @@ const UserInfo = ({ userData, isOwnProfile }) => {
       }
       
       // Vérifier les demandes reçues
-      const pendingResponse = await axios.get('http://localhost:8000/api/users/friends/requests/pending/', {
+      const pendingResponse = await api.get('/users/friends/requests/pending/', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -53,7 +83,7 @@ const UserInfo = ({ userData, isOwnProfile }) => {
       }
       
       // Vérifier si déjà amis
-      const friendsResponse = await axios.get('http://localhost:8000/api/users/friends/', {
+      const friendsResponse = await api.get('/users/friends/', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -74,6 +104,15 @@ const UserInfo = ({ userData, isOwnProfile }) => {
       setLoading(false);
     }
   };
+
+  // Check friendship status when needed
+  useEffect(() => {
+    if (!isOwnProfile && user && userData) {
+      checkFriendshipStatus(userData.id);
+    }
+  }, [isOwnProfile, user, userData]);
+
+  if (!displayData) return null;
   
   const sendFriendRequest = async () => {
     try {
@@ -96,8 +135,8 @@ const UserInfo = ({ userData, isOwnProfile }) => {
       console.log("Payload envoyé:", payload);
       
       try {
-        const response = await axios.post(
-          'http://localhost:8000/api/users/friends/requests/',
+        const response = await api.post(
+          '/users/friends/requests/',
           payload,
           config
         );
@@ -134,8 +173,8 @@ const UserInfo = ({ userData, isOwnProfile }) => {
   const cancelFriendRequest = async () => {
     try {
       setLoading(true);
-      await axios.post(
-        `http://localhost:8000/api/users/friends/requests/${friendshipId}/`,
+      await api.post(
+        `/users/friends/requests/${friendshipId}/`,
         { action: 'cancel' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -156,16 +195,16 @@ const UserInfo = ({ userData, isOwnProfile }) => {
       
       // Vous pouvez soit utiliser l'ID de l'amitié si vous l'avez
       if (friendshipId) {
-        await axios.post(
-          `http://localhost:8000/api/users/friends/remove/${friendshipId}/`,
+        await api.post(
+          `/users/friends/remove/${friendshipId}/`,
           {},
           { headers: { Authorization: `Bearer ${token}` } }
         );
       } 
       // Ou utiliser l'ID de l'utilisateur
       else {
-        await axios.post(
-          `http://localhost:8000/api/users/friends/remove/user/${displayData.id}/`,
+        await api.post(
+          `/users/friends/remove/user/${displayData.id}/`,
           {},
           { headers: { Authorization: `Bearer ${token}` } }
         );
@@ -184,8 +223,8 @@ const UserInfo = ({ userData, isOwnProfile }) => {
   const acceptFriendRequest = async () => {
     try {
       setLoading(true);
-      await axios.post(
-        `http://localhost:8000/api/users/friends/requests/${friendshipId}/`,
+      await api.post(
+        `/users/friends/requests/${friendshipId}/`,
         { action: 'accept' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -202,8 +241,8 @@ const UserInfo = ({ userData, isOwnProfile }) => {
   const rejectFriendRequest = async () => {
     try {
       setLoading(true);
-      await axios.post(
-        `http://localhost:8000/api/users/friends/requests/${friendshipId}/`,
+      await api.post(
+        `/users/friends/requests/${friendshipId}/`,
         { action: 'reject' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -361,3 +400,185 @@ const UserInfo = ({ userData, isOwnProfile }) => {
 };
 
 export default UserInfo;
+
+
+
+// import { useState, useEffect, useCallback } from 'react';
+// import api from '../../api/axios';
+// import { API_BASE_URL } from '../../config';
+// import { useUser } from '../../contexts/UserContext';
+
+// const UserInfo = ({ userData, isOwnProfile }) => {
+//   const { user } = useUser();
+//   const token = localStorage.getItem('token');
+  
+//   const [displayData, setDisplayData] = useState(null);
+//   const [friendStatus, setFriendStatus] = useState('none');
+//   const [friendshipId, setFriendshipId] = useState(null);
+//   const [loading, setLoading] = useState(false);
+//   const [statsLoading, setStatsLoading] = useState(true);
+
+//   // Memoized stats fetcher
+//   const fetchStats = useCallback(async () => {
+//     try {
+//       const response = await api.get(`player-stats/${userData.intra_id}/`);
+//       setDisplayData(prev => ({
+//         ...prev,
+//         wins: response.data.wins,
+//         losses: response.data.losses
+//       }));
+//     } catch (error) {
+//       console.error('Error fetching stats:', error);
+//       setDisplayData(prev => ({
+//         ...prev,
+//         wins: 0,
+//         losses: 0
+//       }));
+//     } finally {
+//       setStatsLoading(false);
+//     }
+//   }, [userData?.intra_id]);
+
+//   // Initial load and periodic refresh
+//   useEffect(() => {
+//     if (!userData) return;
+
+//     // Initial data setup
+//     setDisplayData({
+//       ...userData,
+//       wins: 0,
+//       losses: 0
+//     });
+
+//     // Immediate fetch
+//     fetchStats();
+
+//     // Set up interval for refreshes
+//     const interval = setInterval(fetchStats, 10000); // Refresh every 10 seconds
+
+//     return () => clearInterval(interval);
+//   }, [userData, fetchStats]);
+
+//   // Friendship status checker
+//   const checkFriendshipStatus = async (profileId) => {
+//     try {
+//       setLoading(true);
+      
+//       // Check sent requests
+//       const sentResponse = await api.get('/users/friends/requests/sent/', {
+//         headers: { Authorization: `Bearer ${token}` }
+//       });
+      
+//       const sentRequest = sentResponse.data.find(req => req.receiver_id === profileId);
+//       if (sentRequest) {
+//         setFriendStatus('pending');
+//         setFriendshipId(sentRequest.id);
+//         setLoading(false);
+//         return;
+//       }
+      
+//       // Check received requests
+//       const pendingResponse = await api.get('/users/friends/requests/pending/', {
+//         headers: { Authorization: `Bearer ${token}` }
+//       });
+      
+//       const pendingRequest = pendingResponse.data.find(req => req.sender_id === profileId);
+//       if (pendingRequest) {
+//         setFriendStatus('received');
+//         setFriendshipId(pendingRequest.id);
+//         setLoading(false);
+//         return;
+//       }
+      
+//       // Check existing friends
+//       const friendsResponse = await api.get('/users/friends/', {
+//         headers: { Authorization: `Bearer ${token}` }
+//       });
+      
+//       const existingFriendship = friendsResponse.data.find(
+//         f => f.receiver_id === profileId || f.sender_id === profileId
+//       );
+      
+//       if (existingFriendship) {
+//         setFriendStatus('friends');
+//         setFriendshipId(existingFriendship.id);
+//       } else {
+//         setFriendStatus('none');
+//       }
+      
+//       setLoading(false);
+//     } catch (err) {
+//       console.error('Error checking friendship status:', err);
+//       setLoading(false);
+//     }
+//   };
+
+//   // Check friendship status when needed
+//   useEffect(() => {
+//     if (!isOwnProfile && user && userData) {
+//       checkFriendshipStatus(userData.id);
+//     }
+//   }, [isOwnProfile, user, userData]);
+
+//   if (!displayData) return null;
+
+//   return (
+//     <div className="bg-white rounded-lg p-6 mb-6 shadow-lg">
+//       <div className="flex flex-col">
+//         <div className="flex justify-between items-center">
+//           <div>
+//             <h1 className="text-2xl font-bold text-gray-900">
+//               {displayData.display_name}
+//             </h1>
+//             <div className="text-sm text-gray-500">@{displayData.intra_id}</div>
+//           </div>
+          
+//           {/* Keep your existing friend status buttons here */}
+//         </div>
+
+//         <div className="mt-4 flex items-center">
+//           <span className={`inline-block w-3 h-3 rounded-full mr-2 ${
+//             displayData.status === 'online' ? 'bg-green-500' :
+//             displayData.status === 'in_game' ? 'bg-yellow-500' :
+//             'bg-gray-500'
+//           }`}></span>
+//           <span className="text-gray-700 capitalize">{displayData.status}</span>
+//         </div>
+
+
+//         <div className="mt-4 grid grid-cols-3 gap-4">
+//           <div className="text-center">
+//             <div className="text-gray-500 text-sm">Wins</div>
+//             {statsLoading ? (
+//               <div className="animate-pulse h-6 w-8 bg-gray-200 rounded mx-auto"></div>
+//             ) : (
+//               <div className="font-bold text-green-600">{displayData.wins}</div>
+//             )}
+//           </div>
+//           <div className="text-center">
+//             <div className="text-gray-500 text-sm">Losses</div>
+//             {statsLoading ? (
+//               <div className="animate-pulse h-6 w-8 bg-gray-200 rounded mx-auto"></div>
+//             ) : (
+//               <div className="font-bold text-red-600">{displayData.losses}</div>
+//             )}
+//           </div>
+//           <div className="text-center">
+//             <div className="text-gray-500 text-sm">Ratio</div>
+//             {statsLoading ? (
+//               <div className="animate-pulse h-6 w-16 bg-gray-200 rounded mx-auto"></div>
+//             ) : (
+//               <div className="font-bold text-blue-600">
+//                 {displayData.wins + displayData.losses > 0 
+//                   ? ((displayData.wins / (displayData.wins + displayData.losses) * 100).toFixed(1) + '%')
+//                   : '0%'}
+//               </div>
+//             )}
+//           </div>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
+
+// export default UserInfo;

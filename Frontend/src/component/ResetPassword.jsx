@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api/axios';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -39,7 +39,7 @@ export default function ResetPassword() {
     }
 
     try {
-      await axios.post('http://localhost:8000/api/users/password-reset-confirm/', {
+      const response = await api.post('/users/password-reset-confirm/', {
         token: token,
         new_password: formData.password
       });
@@ -50,7 +50,8 @@ export default function ResetPassword() {
       }, 3000);
 
     } catch (error) {
-      setError(error.response?.data?.message || 'Une erreur est survenue');
+      console.error('Reset password error:', error);
+      setError(error.response?.data?.message || 'Une erreur est survenue lors de la réinitialisation du mot de passe');
     } finally {
       setIsLoading(false);
     }

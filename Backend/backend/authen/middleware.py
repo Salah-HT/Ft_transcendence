@@ -11,7 +11,7 @@ class UserStatusMiddleware:
             # Mettre à jour les statuts inactifs
             UserProfile.objects.filter(
                 status='online',
-                updated_at__lt=timezone.now() - timedelta(minutes=2)
+                updated_at__lt=timezone.now() - timedelta(seconds=10)
             ).update(status='offline')
 
             response = self.get_response(request)

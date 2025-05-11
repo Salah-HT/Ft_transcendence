@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Bell, Check } from 'lucide-react';
-import axios from 'axios';
+import api from '../../api/axios';
 import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
@@ -9,135 +9,174 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 
-
 const NotificationComponent = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true);
+  const [socket, setSocket] = useState(null);
   const token = localStorage.getItem('token');
   const navigate = useNavigate();
 
+  // WebSocket setup with proper connection handling
   useEffect(() => {
-    fetchNotifications();
+    if (!isOpen || !token) return;
+  
+    // Use secure WebSocket and current host
+    const wsUrl = `wss://${window.location.host}/ws/notifications/?token=${token}`;
+    
+    console.log('Connecting to WebSocket:', wsUrl);
+    const ws = new WebSocket(wsUrl);
 
-    const interval = setInterval(() => {
-      fetchNotifications();
-    }, 10000);
+    const handleMessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        console.log('WebSocket message:', data);
 
-    return () => clearInterval(interval);
-  }, []);
+        if (data.type === 'notification.message') {
+          const message = data.message;
+          
+          // Handle different notification types
+          switch(message.type) {
+            case 'game_notification':
+              if (message.action === 'invite_rejected') {
+                alert(message.message);
+              }
+              fetchNotifications();
+              break;
+            
+            case 'friend_request':
+            case 'game_invite':
+              fetchNotifications();
+              break;
+            
+            default:
+              fetchNotifications();
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing message:', error);
+      }
+    };
 
-  const fetchNotifications = async () => {
+    const handleError = (e) => {
+      console.error('WebSocket error:', e);
+    };
+
+    const handleClose = (e) => {
+      console.log('WebSocket closed:', e.code);
+      if (e.code !== 1000 && isOpen) {
+        setTimeout(() => setSocket(new WebSocket(wsUrl)), 5000);
+      }
+    };
+
+    ws.addEventListener('open', () => {
+      console.log('WebSocket connected');
+      setSocket(ws);
+    });
+
+    ws.addEventListener('message', handleMessage);
+    ws.addEventListener('error', handleError);
+    ws.addEventListener('close', handleClose);
+
+    return () => {
+      ws.removeEventListener('message', handleMessage);
+      ws.removeEventListener('error', handleError);
+      ws.removeEventListener('close', handleClose);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, 'Component unmount');
+      }
+    };
+  }, [isOpen, token]);
+
+  // Fetch notifications
+  const fetchNotifications = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:8000/api/notifications/', {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+      const response = await api.get('/notifications/', {
+        headers: { Authorization: `Bearer ${token}` }
       });
       setNotifications(response.data);
-      setLoading(false);
     } catch (error) {
       console.error('Error fetching notifications:', error);
+    } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  // Initial fetch and setup polling
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   const markAsRead = async (notificationId) => {
     try {
-      await axios.post(
-        `http://localhost:8000/api/notifications/${notificationId}/read/`,
+      await api.post(
+        `/notifications/${notificationId}/read/`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setNotifications(
-        notifications.map(n =>
-          n.id === notificationId ? { ...n, is_read: true } : n
-        )
+      setNotifications(prev => 
+        prev.map(n => n.id === notificationId ? {...n, is_read: true} : n)
       );
     } catch (error) {
-      console.error("Erreur lors du marquage de la notification comme lue:", error);
+      console.error("Error marking notification as read:", error);
     }
   };
 
   const markAllAsRead = async () => {
     try {
-      await axios.post(
-        'http://localhost:8000/api/notifications/mark-all-read/',
+      await api.post(
+        '/notifications/mark-all-read/',
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setNotifications(
-        notifications.map(n => ({ ...n, is_read: true }))
-      );
+      setNotifications(prev => prev.map(n => ({...n, is_read: true})));
     } catch (error) {
-      console.error("Erreur lors du marquage de toutes les notifications comme lues:", error);
+      console.error("Error marking all notifications as read:", error);
     }
   };
 
-  const navigateToUserProfile = (notification) => {
-    console.log("Notification complète:", notification);
-    console.log("ID de l'expéditeur:", notification.sender_id);
-    console.log("Intra ID de l'expéditeur:", notification.sender_intra_id);
-
-    axios.get(`http://localhost:8000/api/users/${notification.sender_intra_id}/`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(response => {
-        console.log("Utilisateur trouvé:", response.data);
-        setIsOpen(false);
-        markAsRead(notification.id);
-        navigate(`/profile/${notification.sender_intra_id}`);
-      })
-      .catch(error => {
-        console.error("Erreur lors de la récupération du profil:", error);
-        alert("Impossible de trouver le profil de cet utilisateur");
-      });
+  const navigateToUserProfile = async (notification) => {
+    try {
+      const response = await api.get(
+        `/users/${notification.sender_intra_id}/`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setIsOpen(false);
+      await markAsRead(notification.id);
+      navigate(`/profile/${notification.sender_intra_id}`);
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      alert("Could not find this user's profile");
+    }
   };
+
   const handleGameInviteAction = async (notificationId, action) => {
     try {
-      console.log(`Handling game invite: ${notificationId} with action: ${action}`);
-      
-      const res = await fetch(`http://localhost:8000/api/notifications/game-invite/${notificationId}/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action }),
-      });
-  
-      console.log("Response status:", res.status);
-      
-      if (res.ok) {
-        const data = await res.json();
-        console.log("Game invite response:", data);
-  
-        if (action === "accept" && data.status === "accepted") {
-          // Redirect to game room
-          console.log("Invitation accepted, redirecting to game...");
-          // You might want to navigate to a game room here
-          // navigate(`/game/room/${data.id}`);
+      const response = await api.post(
+        `/notifications/game-invite/${notificationId}/`,
+        { action },
+        { 
+          headers: { Authorization: `Bearer ${token}` },
+          validateStatus: (status) => status < 500
         }
+      );
   
-        // Update the notification as read
-        markAsRead(notificationId);
-        
-        // Refresh notifications to update the UI
-        fetchNotifications();
-      } else {
-        const errorData = await res.json();
-        console.error("Error response from backend:", errorData);
-        alert(`Error: ${errorData.error || "Failed to process game invite"}`);
+      if (action === "accept" && response.data.redirect_url) {
+        window.location.href = response.data.redirect_url;
+        return;
       }
+  
+      await markAsRead(notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+  
     } catch (error) {
-      console.error("Error handling game invite:", error);
-      alert("An error occurred while processing the game invitation");
+      console.error("Game invite error:", error);
+      alert(error.response?.data?.error || "Failed to process invite");
     }
   };
-  
 
   const getNotificationContent = (notification) => {
     switch (notification.notification_type) {
@@ -156,18 +195,46 @@ const NotificationComponent = () => {
             <p className="text-sm">vous invite à jouer une partie</p>
             <div className="mt-2 flex gap-2">
               <button
-                onClick={() => handleGameInviteAction(notification.id, "accept")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleGameInviteAction(notification.id, "accept");
+                }}
                 className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
               >
                 Accepter
               </button>
               <button
-                onClick={() => handleGameInviteAction(notification.id, "reject")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleGameInviteAction(notification.id, "reject");
+                }}
                 className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
               >
-                Refuser
+                Rejeter
               </button>
             </div>
+          </div>
+        );
+
+      case 'game_ready':
+        return (
+          <div className="space-y-2">
+            <p className="font-semibold">⏰ Partie Prête!</p>
+            <p className="text-sm">{notification.content}</p>
+            <button
+              onClick={() => window.location.href = notification.redirect_url}
+              className="w-full py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+            >
+              Rejoindre la partie
+            </button>
+          </div>
+        );
+
+      case 'invite_rejected':
+        return (
+          <div className="text-red-600">
+            <p className="font-semibold">❌ Invitation Rejetée</p>
+            <p className="text-sm">{notification.content}</p>
           </div>
         );
 
@@ -235,6 +302,7 @@ const NotificationComponent = () => {
                 <div
                   key={notification.id}
                   className={`p-4 rounded-lg border transition-all hover:bg-gray-100 ${!notification.is_read ? 'bg-blue-50' : ''}`}
+                  onClick={() => !notification.notification_type.includes('game_invite') && markAsRead(notification.id)}
                 >
                   <div className="flex justify-between">
                     <div className="flex-grow">
@@ -245,7 +313,10 @@ const NotificationComponent = () => {
                     </div>
                     {!notification.is_read && (
                       <button
-                        onClick={() => markAsRead(notification.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markAsRead(notification.id);
+                        }}
                         className="ml-2 p-1.5 text-blue-600 hover:bg-blue-100 rounded-full"
                         title="Marquer comme lu"
                       >

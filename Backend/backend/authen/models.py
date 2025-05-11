@@ -8,8 +8,9 @@ from datetime import timedelta
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     intra_id = models.CharField(max_length=100, unique=True)
-    DEFAULT_AVATAR = './media/avatars/defaultavatar.png'
-    avatar = models.URLField(default=DEFAULT_AVATAR)
+    # Use absolute path for default avatar - using a consistent format
+    DEFAULT_AVATAR = '/media/avatars/defaultavatar.png'
+    avatar = models.CharField(max_length=255, default=DEFAULT_AVATAR)
     display_name = models.CharField(
         max_length=100,
         unique=True,
@@ -41,6 +42,7 @@ class UserProfile(models.Model):
 
     class Meta:
         db_table = 'user_profiles'
+        
 
 class PasswordResetToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -50,7 +52,7 @@ class PasswordResetToken(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(hours=24)  # Le token expire après 24h
+            self.expires_at = timezone.now() + timedelta(minutes=15)  
         super().save(*args, **kwargs)
 
     def is_valid(self):
@@ -68,7 +70,7 @@ class TwoFactorCode(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(minutes=10)
+            self.expires_at = timezone.now() + timedelta(minutes=2)
         super().save(*args, **kwargs)
 
     def is_valid(self):
@@ -80,7 +82,6 @@ class TwoFactorCode(models.Model):
     class Meta:
         db_table = 'two_factor_codes'
         
-# Dans models.py, ajoutez:
 
 class Notification(models.Model):
     NOTIFICATION_TYPES = [
@@ -95,12 +96,11 @@ class Notification(models.Model):
     content = models.TextField()
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    redirect_url = models.CharField(max_length=200, null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']
         
-
-# Ajoutez ceci à votre models.py
 
 class Friendship(models.Model):
     STATUS_CHOICES = [
@@ -136,5 +136,13 @@ class GameInvite(models.Model):
     
     def __str__(self):
         return f"GameInvite: {self.sender.username} -> {self.receiver.username} ({self.status})"
+    
+class ActiveSession(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    session_key = models.CharField(max_length=100)
+    last_activity = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'active_sessions'
 
     
